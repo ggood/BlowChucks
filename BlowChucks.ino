@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2012, Gordon S. Good (velo27 [at] yahoo [dot] com)
+ * Copyright (c) 2012-2013, Gordon S. Good (velo27 [at] yahoo [dot] com)
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
