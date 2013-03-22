@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2012-2013, Gordon S. Good (velo27 [at] yahoo [dot] com)
+ * Copyright (c) 2012, Gordon S. Good (velo27 [at] yahoo [dot] com)
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -52,12 +52,15 @@
 
 // MIDI breath controller number
 #define BREATH_CONTROLLER 2
+// If true, then send breath values as MIDI aftertouch values,
+// which is necessary for some Synths, e.g. Korg M1
+#define SEND_MIDI_AT true
 // MIDI controller number for nunchuck roll sensor
-#define CHUCK_ROLL_CONTROLLER 17  // 17 = General Purpose Slider 2
+#define CHUCK_R_ROLL_CONTROLLER 17  // 17 = General Purpose Slider 2
 // TODO(ggood) - the Teensy doesn't want to seem to send any
 // messages on GP Slider 1 (CC 16) - huh?
 // MIDI controller number for nunchuck pitch sensor
-#define CHUCK_PITCH_CONTROLLER 18  // 18 = General Purpose Slider 3
+#define CHUCK_R_PITCH_CONTROLLER 18  // 18 = General Purpose Slider 3
 
 // The three states of our state machine
 // No note is sounding
@@ -192,7 +195,18 @@ int get_note() {
   }
   // Now map pairs of x, y directions to a note
   byte direction = get_direction(x_dir, y_dir);
-  return notes[direction];
+  byte base_note = notes[direction];
+  byte note = base_note;
+  
+  // Now look at the left joystick to select an octave, based
+  // on X axis centered, or left/right of center.
+  int lx = chuckR.readJoyX();
+  if (lx < -ZERO_TOLERANCE) {
+    note = base_note - 12;
+  } else if (lx > ZERO_TOLERANCE) {
+    note = base_note + 12;
+  }
+  return note;
 }
 
 // ================
@@ -253,6 +267,9 @@ void handle_breath_sensor() {
         // Map the sensor value to the breath controller range 0-127
         bcVal = map(sensorValue, NOTE_ON_THRESHOLD, 1023, 0, 127);
         usbMIDI.sendControlChange(BREATH_CONTROLLER, bcVal, MIDI_CHANNEL);
+        if (SEND_MIDI_AT) {
+            usbMIDI.sendAfterTouch(bcVal, MIDI_CHANNEL);
+        }
         bcSendTime = millis();
       }
     }
@@ -356,11 +373,11 @@ void handle_pitch_roll() {
   if (millis() - ccSendTime > CC_INTERVAL) {
     // Map the CC values from the nunchuck
     ccValRoll = map(chuckL.readRoll(), -180, 180, 0, 127);
-    usbMIDI.sendControlChange(CHUCK_ROLL_CONTROLLER, ccValRoll, MIDI_CHANNEL);
+    usbMIDI.sendControlChange(CHUCK_R_ROLL_CONTROLLER, ccValRoll, MIDI_CHANNEL);
     chuckL.update();  // XXX(ggood) is this needed?
     delay(1);  // XXX(ggood) and this?
     ccValPitch = map(chuckL.readPitch(), 0, 140, 0, 127);
-    usbMIDI.sendControlChange(CHUCK_PITCH_CONTROLLER, ccValPitch, MIDI_CHANNEL);
+    usbMIDI.sendControlChange(CHUCK_R_PITCH_CONTROLLER, ccValPitch, MIDI_CHANNEL);
     ccSendTime = millis();
   }
 }
@@ -377,10 +394,8 @@ void handle_track_change() {
 void loop() {
   // Process nunchuck data
   chuckL.update(); 
-  delay(10);
   chuckR.update();
-  // XXX(ggood) - is this delay needed?
-  delay(10);
+ 
 
   handle_breath_sensor();
   handle_joystick();
