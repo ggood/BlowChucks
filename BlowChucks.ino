@@ -68,9 +68,13 @@
 // We've observed a transition from below to above the
 // threshold value. We wait a while to see how fast the
 // breath velocity is increasing
-#define RISE_TIME 10
+#define RISE_TIME 2
 // A note is sounding
 #define NOTE_ON 3
+
+// The maximum number of simultaneous notes (polyphony)
+#define MAX_NOTES 4
+
 // Send breath controller data no more than every AT_INTERVAL
 // milliseconds
 #define BC_INTERVAL 70
@@ -93,14 +97,16 @@ unsigned int notes[9] = {
 #define WEST 7
 #define NORTHWEST 8
 
-// We keep track of which note is sounding, so we know
+// The base note - used to detect note changes
+int base_note;
+// We keep track of which notes are sounding, so we know
 // which note to turn off when breath stops.
-int noteSounding;
+int sounding_notes[MAX_NOTES];
 // This is the selected note, which may be different than
-// the currently sounding note
-int selectedNote;
+// the base note
+int selected_note;
 // The value read from the sensor
-int sensorValue;
+int sensor_value;
 // The state of our state machine
 int state;
 // The time that we noticed the breath off -> on transition
@@ -108,15 +114,15 @@ unsigned long breath_on_time = 0L;
 // The breath value at the time we observed the transition
 int initial_breath_value;
 // The breath controller value we will send
-int bcVal;
+int bc_val;
 // The last time we sent a breath controller value
-unsigned long bcSendTime = 0L;
+unsigned long bc_send_time = 0L;
 // The last time we sent a MIDI CC value
-unsigned long ccSendTime = 0L;
+unsigned long cc_send_time = 0L;
 
 // The nunchuck objects (2)
-WiiChuckTeensy3 chuckL = WiiChuckTeensy3(0); // The nunchuck controller - Left Hand
-WiiChuckTeensy3 chuckR = WiiChuckTeensy3(1); // The nunchuck controller - Right Hand
+WiiChuckTeensy3 chuck_left = WiiChuckTeensy3(0); // The nunchuck controller - Left Hand
+WiiChuckTeensy3 chuck_right = WiiChuckTeensy3(1); // The nunchuck controller - Right Hand
 
 // Current button state from nunchuck
 byte buttonState = 0;
@@ -135,78 +141,115 @@ void setup() {
   state = NOTE_OFF;  // initialize state machine
   // Initialize the nunchuck-related things
   prevButtonState = buttonState = 0;
-  chuckL.begin();
-  chuckR.begin();
+  chuck_left.begin();
+  chuck_right.begin();
 }
 
 
 // ================
 // Note selection
 // ================
-int OLDget_note() {
-  return notes[random(0,4)];
-}
-
 byte get_direction(int x_dir, int y_dir) {
   if (x_dir < 0) {
     if (y_dir < 0) {
       return SOUTHWEST;
-    } else if (y_dir > 0) {
+    } 
+    else if (y_dir > 0) {
       return NORTHWEST;
-    } else {
+    } 
+    else {
       return WEST;
     }
-  } else if (x_dir > 0) {
+  } 
+  else if (x_dir > 0) {
     if (y_dir < 0) {
       return SOUTHEAST;
-    } else if (y_dir > 0) {
+    } 
+    else if (y_dir > 0) {
       return NORTHEAST; // OK
-    } else {
+    } 
+    else {
       return EAST;  // OK
     }
-  } else {
+  } 
+  else {
     if (y_dir < 0) {
       return SOUTH;
-    } else if (y_dir > 0) {
+    } 
+    else if (y_dir > 0) {
       return NORTH;  // OK
-    } else {
+    } 
+    else {
       return CENTER;  // OK
     }
   }
 }
 
-int get_note() {
+// Examine the joystick positions and computer a new
+// base_note
+byte get_base_note() {
 #define ZERO_TOLERANCE 10
+  byte new_note;
+
   // Read joystick
-  int x = chuckL.readJoyX();
-  int y = chuckL.readJoyY();
+  int x = chuck_left.readJoyX();
+  int y = chuck_left.readJoyY();
   int x_dir, y_dir = 0;
-  
+
   // Map x and y to a direction (-1, 0, 1)
   if (abs(x) < ZERO_TOLERANCE) {
     x_dir = 0;
-  } else {
+  } 
+  else {
     x_dir = x > 0 ? 1 : -1;
   }
   if (abs(y) < ZERO_TOLERANCE) {
     y_dir = 0;
-  } else {
+  } 
+  else {
     y_dir = y > 0 ? 1 : -1;
   }
   // Now map pairs of x, y directions to a note
   byte direction = get_direction(x_dir, y_dir);
-  byte base_note = notes[direction];
-  byte note = base_note;
-  
+  new_note = notes[direction];
+
   // Now look at the left joystick to select an octave, based
   // on X axis centered, or left/right of center.
-  int lx = chuckR.readJoyX();
+  int lx = chuck_right.readJoyX();
   if (lx < -ZERO_TOLERANCE) {
-    note = base_note - 12;
-  } else if (lx > ZERO_TOLERANCE) {
-    note = base_note + 12;
+    new_note -= 12;
+  } 
+  else if (lx > ZERO_TOLERANCE) {
+    new_note += 12;
   }
-  return note;
+  return new_note;
+}
+
+void update_sounding_notes(byte note) {
+  sounding_notes[0] = note;
+  sounding_notes[1] = note + 5;
+  sounding_notes[2] = note + 10;
+  for (byte i = 3; i < MAX_NOTES; i++) {
+    sounding_notes[i] = -1;  // XXX(ggood) change for more polyphony
+  }
+}
+
+void notes_on() {
+  update_sounding_notes(base_note = get_base_note());
+  int velocity = get_velocity(initial_breath_value, sensor_value, RISE_TIME);
+  for (byte i = 0; i < MAX_NOTES; i++) {
+    if (sounding_notes[i] != -1) {
+      usbMIDI.sendNoteOn(sounding_notes[i], velocity, MIDI_CHANNEL);
+    }
+  }
+}
+
+void notes_off() {
+  for (byte i = 0; i < MAX_NOTES; i++) {
+    if (sounding_notes[i] != -1) {
+      usbMIDI.sendNoteOff(sounding_notes[i], 127, MIDI_CHANNEL);
+    }
+  }
 }
 
 // ================
@@ -221,25 +264,23 @@ int get_velocity(int initial, int final, unsigned long time_delta) {
 void handle_breath_sensor() {
   // Process pressure sensor data
   // read the input on analog pin 0
-  sensorValue = analogRead(A0);
+  sensor_value = analogRead(A0);
   if (state == NOTE_OFF) {
-    if (sensorValue > NOTE_ON_THRESHOLD) {
+    if (sensor_value > NOTE_ON_THRESHOLD) {
       // Value has risen above threshold. Move to the RISE_TIME
       // state. Record time and initial breath value.
       breath_on_time = millis();
-      initial_breath_value = sensorValue;
+      initial_breath_value = sensor_value;
       state = RISE_TIME;  // Go to next state
     }
   } 
   else if (state == RISE_TIME) {
-    if (sensorValue > NOTE_ON_THRESHOLD) {
+    if (sensor_value > NOTE_ON_THRESHOLD) {
       // Has enough time passed for us to collect our second
       // sample?
       if (millis() - breath_on_time > RISE_TIME) {
-        // Yes, so calculate MIDI note and velocity, then send a note on event
-        noteSounding = get_note();
-        int velocity = get_velocity(initial_breath_value, sensorValue, RISE_TIME);
-        usbMIDI.sendNoteOn(noteSounding, velocity, MIDI_CHANNEL);
+        // Yes, so calculate MIDI notes and velocity, then send note on events
+        notes_on();
         state = NOTE_ON;
       }
     } 
@@ -250,27 +291,27 @@ void handle_breath_sensor() {
     }
   } 
   else if (state == NOTE_ON) {
-    byte newNote = get_note();
-    if (newNote != noteSounding) {
-      usbMIDI.sendNoteOff(noteSounding, 127, MIDI_CHANNEL);
+    byte new_base_note = get_base_note();
+    if (new_base_note != base_note) {
+      notes_off();
       state = NOTE_OFF;
-      noteSounding = newNote;
       handle_breath_sensor();
     }
-    if (sensorValue < NOTE_ON_THRESHOLD) {
+    if (sensor_value < NOTE_ON_THRESHOLD) {
       // Value has fallen below threshold - turn the note off
-      usbMIDI.sendNoteOff(noteSounding, 100, MIDI_CHANNEL);  
+      notes_off(); 
       state = NOTE_OFF;
-    } else {
+    } 
+    else {
       // Is it time to send more breath controller data?
-      if (millis() - bcSendTime > BC_INTERVAL) {
+      if (millis() - bc_send_time > BC_INTERVAL) {
         // Map the sensor value to the breath controller range 0-127
-        bcVal = map(sensorValue, NOTE_ON_THRESHOLD, 1023, 0, 127);
-        usbMIDI.sendControlChange(BREATH_CONTROLLER, bcVal, MIDI_CHANNEL);
+        bc_val = map(sensor_value, NOTE_ON_THRESHOLD, 1023, 0, 127);
+        usbMIDI.sendControlChange(BREATH_CONTROLLER, bc_val, MIDI_CHANNEL);
         if (SEND_MIDI_AT) {
-            usbMIDI.sendAfterTouch(bcVal, MIDI_CHANNEL);
+          usbMIDI.sendAfterTouch(bc_val, MIDI_CHANNEL);
         }
-        bcSendTime = millis();
+        bc_send_time = millis();
       }
     }
   }
@@ -282,8 +323,8 @@ void handle_breath_sensor() {
 
 // TODO(ggood) rewrite in terms of bit shift operations
 byte get_button_l_state() {
-  if (chuckL.buttonC) {
-    if (chuckL.buttonZ) {
+  if (chuck_left.buttonC) {
+    if (chuck_left.buttonZ) {
       return 0x03;
     } 
     else {
@@ -291,7 +332,7 @@ byte get_button_l_state() {
     }
   } 
   else {
-    if (chuckL.buttonZ) {
+    if (chuck_left.buttonZ) {
       return 0x01;
     } 
     else {
@@ -326,8 +367,8 @@ void track_prev() {
 }
 
 void handle_joystick() {
-  selectedNote = get_note();
-  if (state == NOTE_ON && selectedNote != noteSounding) {
+  selected_note = get_base_note();
+  if (state == NOTE_ON && selected_note != base_note) {
     // player moved joystick to a new position. Turn off
     // current note and turn on new one.
     handle_breath_sensor();
@@ -370,32 +411,32 @@ void handle_pitch_roll() {
   byte ccValRoll;
   byte ccValPitch;
   // Is it time to send more CC data?
-  if (millis() - ccSendTime > CC_INTERVAL) {
+  if (millis() - cc_send_time > CC_INTERVAL) {
     // Map the CC values from the nunchuck
-    ccValRoll = map(chuckL.readRoll(), -180, 180, 0, 127);
+    ccValRoll = map(chuck_left.readRoll(), -180, 180, 0, 127);
     usbMIDI.sendControlChange(CHUCK_R_ROLL_CONTROLLER, ccValRoll, MIDI_CHANNEL);
-    chuckL.update();  // XXX(ggood) is this needed?
+    chuck_left.update();  // XXX(ggood) is this needed?
     delay(1);  // XXX(ggood) and this?
-    ccValPitch = map(chuckL.readPitch(), 0, 140, 0, 127);
+    ccValPitch = map(chuck_left.readPitch(), 0, 140, 0, 127);
     usbMIDI.sendControlChange(CHUCK_R_PITCH_CONTROLLER, ccValPitch, MIDI_CHANNEL);
-    ccSendTime = millis();
+    cc_send_time = millis();
   }
 }
 
 void handle_track_change() {
-  if (chuckR.cPressed()) {
+  if (chuck_right.cPressed()) {
     track_prev();
   }
-  if (chuckR.zPressed()) {
+  if (chuck_right.zPressed()) {
     track_next();
   }
 }
 
 void loop() {
   // Process nunchuck data
-  chuckL.update(); 
-  chuckR.update();
- 
+  chuck_left.update(); 
+  chuck_right.update();
+
 
   handle_breath_sensor();
   handle_joystick();
@@ -403,5 +444,6 @@ void loop() {
   handle_scene_launch();
   handle_track_change();
 }
+
 
 
