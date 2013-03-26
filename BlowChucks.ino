@@ -48,7 +48,7 @@
 #define NOTE_ON_THRESHOLD 80
 // The maximum raw pressure value you can generate by
 // blowing into the tube.
-#define MAX_PRESSURE 500
+#define MAX_PRESSURE 1023
 
 // MIDI breath controller number
 #define BREATH_CONTROLLER 2
@@ -257,8 +257,8 @@ void notes_off() {
 // ================
 
 int get_velocity(int initial, int final, unsigned long time_delta) {
-  //return map(final, NOTE_ON_THRESHOLD, MAX_PRESSURE, 0, 127);
-  return map(constrain(final, NOTE_ON_THRESHOLD, MAX_PRESSURE), NOTE_ON_THRESHOLD, MAX_PRESSURE, 0, 127);
+  //return map(constrain(final, NOTE_ON_THRESHOLD, MAX_PRESSURE), NOTE_ON_THRESHOLD, MAX_PRESSURE, 0, 127);
+  return 127;
 }
 
 void handle_breath_sensor() {
@@ -306,7 +306,8 @@ void handle_breath_sensor() {
       // Is it time to send more breath controller data?
       if (millis() - bc_send_time > BC_INTERVAL) {
         // Map the sensor value to the breath controller range 0-127
-        bc_val = map(sensor_value, NOTE_ON_THRESHOLD, 1023, 0, 127);
+        unsigned int mval = constrain(sensor_value, NOTE_ON_THRESHOLD, MAX_PRESSURE);
+        bc_val = map(mval, NOTE_ON_THRESHOLD, MAX_PRESSURE, 0, 127);
         usbMIDI.sendControlChange(BREATH_CONTROLLER, bc_val, MIDI_CHANNEL);
         if (SEND_MIDI_AT) {
           usbMIDI.sendAfterTouch(bc_val, MIDI_CHANNEL);
