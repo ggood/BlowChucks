@@ -120,6 +120,12 @@ unsigned long bc_send_time = 0L;
 // The last time we sent a MIDI CC value
 unsigned long cc_send_time = 0L;
 
+// Array of pointers to functions for various harmonizations
+#define NUM_HARMONIZATIONS 4
+void (*harmonizations[NUM_HARMONIZATIONS])(byte) = {monophonic, stacked_fourths, hassell, sharp9};
+// The harmonization currently being used
+byte current_harmonization = 0;
+
 // The nunchuck objects (2)
 WiiChuckTeensy3 chuck_left = WiiChuckTeensy3(0); // The nunchuck controller - Left Hand
 WiiChuckTeensy3 chuck_right = WiiChuckTeensy3(1); // The nunchuck controller - Right Hand
@@ -225,17 +231,44 @@ byte get_base_note() {
   return new_note;
 }
 
-void update_sounding_notes(byte note) {
+// ========= Harmonizatons ============
+void monophonic(byte note) {
+  sounding_notes[0] = note;
+  for (byte i = 1; i < MAX_NOTES; i++) {
+    sounding_notes[i] = -1;
+  }
+}
+
+void stacked_fourths(byte note) {
   sounding_notes[0] = note;
   sounding_notes[1] = note + 5;
   sounding_notes[2] = note + 10;
   for (byte i = 3; i < MAX_NOTES; i++) {
-    sounding_notes[i] = -1;  // XXX(ggood) change for more polyphony
+    sounding_notes[i] = -1;
   }
 }
 
+void hassell(byte note) {
+  sounding_notes[0] = note;
+  sounding_notes[1] = note + 2;
+  sounding_notes[2] = note + 5;
+  for (byte i = 3; i < MAX_NOTES; i++) {
+    sounding_notes[i] = -1;
+  }
+}
+
+void sharp9(byte note) {
+  sounding_notes[0] = note;
+  sounding_notes[1] = note + 6;
+  sounding_notes[2] = note + 10;
+  for (byte i = 3; i < MAX_NOTES; i++) {
+    sounding_notes[i] = -1;
+  }
+}
+
+// ========= End Harmonizatons ============
 void notes_on() {
-  update_sounding_notes(base_note = get_base_note());
+  harmonizations[current_harmonization](base_note = get_base_note());
   int velocity = get_velocity(initial_breath_value, sensor_value, RISE_TIME);
   for (byte i = 0; i < MAX_NOTES; i++) {
     if (sounding_notes[i] != -1) {
@@ -427,12 +460,11 @@ void handle_pitch_roll() {
   }
 }
 
-void handle_track_change() {
+void handle_harmonization_change() {
   if (chuck_right.cPressed()) {
-    track_prev();
-  }
-  if (chuck_right.zPressed()) {
-    track_next();
+    current_harmonization = (current_harmonization + 1) % NUM_HARMONIZATIONS;
+  } else if (chuck_right.zPressed()) {
+    current_harmonization = (current_harmonization == 0 ? NUM_HARMONIZATIONS -1: current_harmonization - 1);
   }
 }
 
@@ -446,7 +478,7 @@ void loop() {
   handle_joystick();
   handle_pitch_roll();
   handle_scene_launch();
-  handle_track_change();
+  handle_harmonization_change();
 }
 
 
