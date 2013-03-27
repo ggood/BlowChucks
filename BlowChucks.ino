@@ -77,10 +77,10 @@
 
 // Send breath controller data no more than every AT_INTERVAL
 // milliseconds
-#define BC_INTERVAL 70
+#define BC_INTERVAL 10
 // Send continuous controller data no more than every CC_INTERVAL
 // milliseconds
-#define CC_INTERVAL 70
+#define CC_INTERVAL 10
 
 // The nine notes that the player selects using the joystick
 unsigned int notes[9] = {
@@ -257,8 +257,11 @@ void notes_off() {
 // ================
 
 int get_velocity(int initial, int final, unsigned long time_delta) {
-  //return map(constrain(final, NOTE_ON_THRESHOLD, MAX_PRESSURE), NOTE_ON_THRESHOLD, MAX_PRESSURE, 0, 127);
+  // Just return a fixed velocity value, which works well for wind-controller-aware
+  // synth patches. For playing other patches, you might try the commented-out
+  // line, which sends a variable velocity.
   return 127;
+  //return map(constrain(final, NOTE_ON_THRESHOLD, MAX_PRESSURE), NOTE_ON_THRESHOLD, MAX_PRESSURE, 0, 127);
 }
 
 void handle_breath_sensor() {
@@ -412,7 +415,7 @@ void handle_pitch_roll() {
   byte ccValRoll;
   byte ccValPitch;
   // Is it time to send more CC data?
-  if (millis() - cc_send_time > CC_INTERVAL) {
+  if (state != NOTE_OFF && millis() - cc_send_time > CC_INTERVAL) {
     // Map the CC values from the nunchuck
     ccValRoll = map(chuck_left.readRoll(), -180, 180, 0, 127);
     usbMIDI.sendControlChange(CHUCK_R_ROLL_CONTROLLER, ccValRoll, MIDI_CHANNEL);
