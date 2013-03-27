@@ -32,15 +32,6 @@
 // data.
 #define MIDI_CHANNEL 1
 // The MIDI channel we use for Ableton Live control
-#define SCENE_MGMT_MIDI_CHANNEL 2
-// The MIDI note for Live scene launch
-#define SCENE_LAUNCH_MIDI_NOTE 0
-// The MIDI note for the Live previous scene action
-#define SCENE_PREV_MIDI_NOTE 1
-// The MIDI note for the Live next scene action
-#define SCENE_NEXT_MIDI_NOTE 2
-// Suppress multiple scene lanches if < 100 ms apart
-#define SCENE_LAUNCH_DELAY 100
 
 // The threshold level for sending a note on event. If the
 // sensor is producing a level above this, we should be sounding
@@ -141,7 +132,12 @@ void setup() {
   state = NOTE_OFF;  // initialize state machine
   // Initialize the nunchuck-related things
   prevButtonState = buttonState = 0;
+  // Nunchucks seem to need a little while to power up, and
+  // don't work without some delay. The delay could probably
+  // be shorter.
+  delay(1000);
   chuck_left.begin();
+  delay(1000);
   chuck_right.begin();
 }
 
@@ -185,7 +181,7 @@ byte get_direction(int x_dir, int y_dir) {
   }
 }
 
-// Examine the joystick positions and computer a new
+// Examine the joystick positions and compute a new
 // base_note
 byte get_base_note() {
 #define ZERO_TOLERANCE 10
@@ -226,11 +222,11 @@ byte get_base_note() {
 }
 
 void update_sounding_notes(byte note) {
+  // This only sends one note, but could send additional notes
+  // to make polyphony.
   sounding_notes[0] = note;
-  sounding_notes[1] = note + 5;
-  sounding_notes[2] = note + 10;
-  for (byte i = 3; i < MAX_NOTES; i++) {
-    sounding_notes[i] = -1;  // XXX(ggood) change for more polyphony
+  for (byte i = 1; i < MAX_NOTES; i++) {
+    sounding_notes[i] = -1; 
   }
 }
 
@@ -318,55 +314,6 @@ void handle_breath_sensor() {
   }
 }
 
-// ================
-// Button/Ableton Scene Management Routines
-// ================
-
-// TODO(ggood) rewrite in terms of bit shift operations
-byte get_button_l_state() {
-  if (chuck_left.buttonC) {
-    if (chuck_left.buttonZ) {
-      return 0x03;
-    } 
-    else {
-      return 0x02;
-    }
-  } 
-  else {
-    if (chuck_left.buttonZ) {
-      return 0x01;
-    } 
-    else {
-      return 0x0;
-    }
-  }
-}
-
-void scene_next() {
-  usbMIDI.sendNoteOn(SCENE_NEXT_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL);
-  usbMIDI.sendNoteOff(SCENE_NEXT_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL);
-}
-
-void scene_prev() {
-  usbMIDI.sendNoteOn(SCENE_PREV_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL);
-  usbMIDI.sendNoteOff(SCENE_PREV_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL); 
-}
-
-void scene_launch() {
-  usbMIDI.sendNoteOn(SCENE_LAUNCH_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL);
-  usbMIDI.sendNoteOff(SCENE_LAUNCH_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL);
-}
-
-void track_next() {
-  usbMIDI.sendNoteOn(SCENE_NEXT_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL);
-  usbMIDI.sendNoteOff(SCENE_NEXT_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL);
-}
-
-void track_prev() {
-  usbMIDI.sendNoteOn(SCENE_PREV_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL);
-  usbMIDI.sendNoteOff(SCENE_PREV_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL); 
-}
-
 void handle_joystick() {
   selected_note = get_base_note();
   if (state == NOTE_ON && selected_note != base_note) {
@@ -376,33 +323,6 @@ void handle_joystick() {
   }
 }
 
-void handle_scene_launch() {
-  // Check for scene up/down and launch. All actions occur on
-  // button release.
-  prevButtonState = buttonState;
-  buttonState = get_button_l_state();
-  sceneLaunchArmed = (buttonState == 0x03) || sceneLaunchArmed;
-  if (buttonState == 0x0) {
-    if (sceneLaunchArmed) {
-      scene_launch();
-      sceneLaunchArmed = false;
-    } 
-    else if (prevButtonState != buttonState) {
-      // Button state transitioned
-      switch (prevButtonState) {
-      case 0x01:
-        scene_next();
-        break;
-      case 0x02:
-        scene_prev();
-        break;
-      case 0x03:
-        //scene_launch();
-        break;
-      }
-    }
-  }
-}
 
 // ================
 // Pitch/Roll mapping to MIDI continuous controllers
@@ -424,15 +344,6 @@ void handle_pitch_roll() {
   }
 }
 
-void handle_track_change() {
-  if (chuck_right.cPressed()) {
-    track_prev();
-  }
-  if (chuck_right.zPressed()) {
-    track_next();
-  }
-}
-
 void loop() {
   // Process nunchuck data
   chuck_left.update(); 
@@ -442,8 +353,6 @@ void loop() {
   handle_breath_sensor();
   handle_joystick();
   handle_pitch_roll();
-  handle_scene_launch();
-  handle_track_change();
 }
 
 
