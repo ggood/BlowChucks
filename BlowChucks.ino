@@ -45,7 +45,7 @@
 // The threshold level for sending a note on event. If the
 // sensor is producing a level above this, we should be sounding
 // a note.
-#define NOTE_ON_THRESHOLD 80
+#define NOTE_ON_THRESHOLD 100
 // The maximum raw pressure value you can generate by
 // blowing into the tube.
 #define MAX_PRESSURE 1023
@@ -73,7 +73,7 @@
 #define NOTE_ON 3
 
 // The maximum number of simultaneous notes (polyphony)
-#define MAX_NOTES 4
+#define MAX_NOTES 9
 
 // Send breath controller data no more than every AT_INTERVAL
 // milliseconds
@@ -82,9 +82,13 @@
 // milliseconds
 #define CC_INTERVAL 10
 
+// When interpreting roll of each nunchuck, rotated -90 to +90
+// produces these values
+#define ROLL_MIN -65
+#define ROLL_MAX 65
+
 // The nine notes that the player selects using the joystick
-unsigned int notes[9] = {
-  60, 62, 65, 67, 69, 72, 74, 77, 79};
+unsigned int notes[9] = {72, 74, 77, 79, 81, 84, 86, 89, 91};
 
 // Mappings from joystick regions
 #define CENTER 0
@@ -121,8 +125,9 @@ unsigned long bc_send_time = 0L;
 unsigned long cc_send_time = 0L;
 
 // Array of pointers to functions for various harmonizations
-#define NUM_HARMONIZATIONS 4
-void (*harmonizations[NUM_HARMONIZATIONS])(byte) = {monophonic, stacked_fourths, hassell, sharp9};
+#define NUM_HARMONIZATIONS 6
+void (*harmonizations[NUM_HARMONIZATIONS])(byte) = {octaves, stacked_fourths, hassell, sharp9,
+                                                    rotate64slash, schwantner};
 // The harmonization currently being used
 byte current_harmonization = 0;
 
@@ -147,6 +152,7 @@ void setup() {
   state = NOTE_OFF;  // initialize state machine
   // Initialize the nunchuck-related things
   prevButtonState = buttonState = 0;
+  delay(100);
   chuck_left.begin();
   chuck_right.begin();
 }
@@ -198,8 +204,8 @@ byte get_base_note() {
   byte new_note;
 
   // Read joystick
-  int x = chuck_left.readJoyX();
-  int y = chuck_left.readJoyY();
+  int x = chuck_right.readJoyX();
+  int y = chuck_right.readJoyY();
   int x_dir, y_dir = 0;
 
   // Map x and y to a direction (-1, 0, 1)
@@ -221,7 +227,7 @@ byte get_base_note() {
 
   // Now look at the left joystick to select an octave, based
   // on X axis centered, or left/right of center.
-  int lx = chuck_right.readJoyX();
+  int lx = chuck_left.readJoyX();
   if (lx < -ZERO_TOLERANCE) {
     new_note -= 12;
   } 
@@ -231,11 +237,25 @@ byte get_base_note() {
   return new_note;
 }
 
+byte get_num_notes() {
+  // Return the number of harmonization notes that should
+  // be played.
+  int roll = chuck_left.readRoll();
+  int roll_c = constrain(roll, ROLL_MIN, ROLL_MAX);
+  int n = map(roll_c, ROLL_MIN, ROLL_MAX, 1, MAX_NOTES);
+  return n;
+  //return MAX_NOTES;
+}
+
 // ========= Harmonizatons ============
-void monophonic(byte note) {
+void octaves(byte note) {
   sounding_notes[0] = note;
-  for (byte i = 1; i < MAX_NOTES; i++) {
-    sounding_notes[i] = -1;
+  for (byte i = 1; i < get_num_notes(); i++) {
+    sounding_notes[i] = note + i * 12;
+    if (i > 0 && sounding_notes[i] < sounding_notes[i - 1]) {
+      // Whoops, overflowed (IOW, we ran off the right end of the keyboard
+      sounding_notes[i] = -1;
+    }
   }
 }
 
@@ -243,7 +263,7 @@ void stacked_fourths(byte note) {
   sounding_notes[0] = note;
   sounding_notes[1] = note + 5;
   sounding_notes[2] = note + 10;
-  for (byte i = 3; i < MAX_NOTES; i++) {
+  for (byte i = 3; i < get_num_notes(); i++) {
     sounding_notes[i] = -1;
   }
 }
@@ -252,7 +272,7 @@ void hassell(byte note) {
   sounding_notes[0] = note;
   sounding_notes[1] = note + 2;
   sounding_notes[2] = note + 5;
-  for (byte i = 3; i < MAX_NOTES; i++) {
+  for (byte i = 3; i < get_num_notes(); i++) {
     sounding_notes[i] = -1;
   }
 }
@@ -261,16 +281,40 @@ void sharp9(byte note) {
   sounding_notes[0] = note;
   sounding_notes[1] = note + 6;
   sounding_notes[2] = note + 10;
-  for (byte i = 3; i < MAX_NOTES; i++) {
+  for (byte i = 3; i < get_num_notes(); i++) {
     sounding_notes[i] = -1;
   }
 }
+
+void rotate64slash(byte note) {
+  int bass_notes[4] = {0, -12, -7, -5};
+  sounding_notes[0] = note;
+  sounding_notes[1] = note + 7;
+  sounding_notes[2] = note + 4;
+  sounding_notes[3] = note + bass_notes[random(0, 3)]; 
+  for (byte i = 4; i < get_num_notes(); i++) {
+    sounding_notes[i] = -1;
+  }
+}
+
+void schwantner(byte note) {
+  sounding_notes[0] = note;
+  sounding_notes[1] = note + 7;
+  sounding_notes[2] = note + 14;
+  sounding_notes[3] = note + 15;
+  sounding_notes[4] = note + 22;
+  sounding_notes[5] = note + 29;
+  for (byte i = 6; i < get_num_notes(); i++) {
+    sounding_notes[i] = -1;
+  }
+}
+  
 
 // ========= End Harmonizatons ============
 void notes_on() {
   harmonizations[current_harmonization](base_note = get_base_note());
   int velocity = get_velocity(initial_breath_value, sensor_value, RISE_TIME);
-  for (byte i = 0; i < MAX_NOTES; i++) {
+  for (byte i = 0; i < get_num_notes(); i++) {
     if (sounding_notes[i] != -1) {
       usbMIDI.sendNoteOn(sounding_notes[i], velocity, MIDI_CHANNEL);
     }
@@ -360,8 +404,8 @@ void handle_breath_sensor() {
 
 // TODO(ggood) rewrite in terms of bit shift operations
 byte get_button_l_state() {
-  if (chuck_left.buttonC) {
-    if (chuck_left.buttonZ) {
+  if (chuck_right.buttonC) {
+    if (chuck_right.buttonZ) {
       return 0x03;
     } 
     else {
@@ -369,7 +413,7 @@ byte get_button_l_state() {
     }
   } 
   else {
-    if (chuck_left.buttonZ) {
+    if (chuck_right.buttonZ) {
       return 0x01;
     } 
     else {
@@ -450,20 +494,20 @@ void handle_pitch_roll() {
   // Is it time to send more CC data?
   if (state != NOTE_OFF && millis() - cc_send_time > CC_INTERVAL) {
     // Map the CC values from the nunchuck
-    ccValRoll = map(chuck_left.readRoll(), -180, 180, 0, 127);
+    ccValRoll = map(chuck_right.readRoll(), -180, 180, 0, 127);
     usbMIDI.sendControlChange(CHUCK_R_ROLL_CONTROLLER, ccValRoll, MIDI_CHANNEL);
-    chuck_left.update();  // XXX(ggood) is this needed?
+    chuck_right.update();  // XXX(ggood) is this needed?
     delay(1);  // XXX(ggood) and this?
-    ccValPitch = map(chuck_left.readPitch(), 0, 140, 0, 127);
+    ccValPitch = map(chuck_right.readPitch(), 0, 140, 0, 127);
     usbMIDI.sendControlChange(CHUCK_R_PITCH_CONTROLLER, ccValPitch, MIDI_CHANNEL);
     cc_send_time = millis();
   }
 }
 
 void handle_harmonization_change() {
-  if (chuck_right.cPressed()) {
+  if (chuck_left.cPressed()) {
     current_harmonization = (current_harmonization + 1) % NUM_HARMONIZATIONS;
-  } else if (chuck_right.zPressed()) {
+  } else if (chuck_left.zPressed()) {
     current_harmonization = (current_harmonization == 0 ? NUM_HARMONIZATIONS -1: current_harmonization - 1);
   }
 }
