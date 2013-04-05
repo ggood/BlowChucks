@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2012, Gordon S. Good (velo27 [at] yahoo [dot] com)
+ * Copyright (c) 2012-2013, Gordon S. Good (velo27 [at] yahoo [dot] com)
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -75,7 +75,7 @@
 // The maximum number of simultaneous notes (polyphony)
 #define MAX_NOTES 9
 
-// Send breath controller data no more than every AT_INTERVAL
+// Send breath controller data no more than every BC_INTERVAL
 // milliseconds
 #define BC_INTERVAL 10
 // Send continuous controller data no more than every CC_INTERVAL
@@ -88,7 +88,7 @@
 #define ROLL_MAX 65
 
 // The nine notes that the player selects using the joystick
-unsigned int notes[9] = {72, 74, 77, 79, 81, 84, 86, 89, 91};
+byte notes[9] = {72, 74, 77, 79, 81, 84, 86, 89, 91};
 
 // Mappings from joystick regions
 #define CENTER 0
@@ -109,9 +109,9 @@ int sounding_notes[MAX_NOTES];
 // This is the selected note, which may be different than
 // the base note
 int selected_note;
-// The value read from the sensor
-int sensor_value;
-// The state of our state machine
+// The value read from the breath sensor
+int breath_sensor_value;
+// The current state of our state machine
 int state;
 // The time that we noticed the breath off -> on transition
 unsigned long breath_on_time = 0L;
@@ -126,9 +126,9 @@ unsigned long cc_send_time = 0L;
 
 // Array of pointers to functions for various harmonizations
 #define NUM_HARMONIZATIONS 6
-void (*harmonizations[NUM_HARMONIZATIONS])(byte) = {octaves, stacked_fourths, hassell, sharp9,
-                                                    rotate64slash, schwantner};
-// The harmonization currently being used
+void (*harmonizations[NUM_HARMONIZATIONS])(byte) = {stacked_fourths, hassell, sharp9,
+                                                    randomRootslash, random64slash, schwantner};
+// The index of the harmonization currently being used
 byte current_harmonization = 0;
 
 // The nunchuck objects (2)
@@ -197,7 +197,7 @@ byte get_direction(int x_dir, int y_dir) {
   }
 }
 
-// Examine the joystick positions and computer a new
+// Examine the joystick positions and compute a new
 // base_note
 byte get_base_note() {
 #define ZERO_TOLERANCE 10
@@ -244,22 +244,11 @@ byte get_num_notes() {
   int roll_c = constrain(roll, ROLL_MIN, ROLL_MAX);
   int n = map(roll_c, ROLL_MIN, ROLL_MAX, 1, MAX_NOTES);
   return n;
-  //return MAX_NOTES;
 }
 
 // ========= Harmonizatons ============
-void octaves(byte note) {
-  sounding_notes[0] = note;
-  for (byte i = 1; i < get_num_notes(); i++) {
-    sounding_notes[i] = note + i * 12;
-    if (i > 0 && sounding_notes[i] < sounding_notes[i - 1]) {
-      // Whoops, overflowed (IOW, we ran off the right end of the keyboard
-      sounding_notes[i] = -1;
-    }
-  }
-}
-
 void stacked_fourths(byte note) {
+  // Base + 4th above + 4th above that
   sounding_notes[0] = note;
   sounding_notes[1] = note + 5;
   sounding_notes[2] = note + 10;
@@ -278,6 +267,7 @@ void hassell(byte note) {
 }
 
 void sharp9(byte note) {
+  // Base + tritone + 4th above that
   sounding_notes[0] = note;
   sounding_notes[1] = note + 6;
   sounding_notes[2] = note + 10;
@@ -286,11 +276,26 @@ void sharp9(byte note) {
   }
 }
 
-void rotate64slash(byte note) {
+void randomRootslash(byte note) {
+  // Major chord in root position, and a bass note
+  // randomly selected from one of 4 notes.
   int bass_notes[4] = {0, -12, -7, -5};
   sounding_notes[0] = note;
-  sounding_notes[1] = note + 7;
-  sounding_notes[2] = note + 4;
+  sounding_notes[1] = note + 4;
+  sounding_notes[2] = note + 7;
+  sounding_notes[3] = note + bass_notes[random(0, 3)]; 
+  for (byte i = 4; i < get_num_notes(); i++) {
+    sounding_notes[i] = -1;
+  }
+}
+
+void random64slash(byte note) {
+  // Major chord in second inversion, and a bass note
+  // randomly selected from one of 4 notes.
+  int bass_notes[4] = {0, -12, -7, -5};
+  sounding_notes[0] = note;
+  sounding_notes[1] = note + 5;
+  sounding_notes[2] = note + 9;
   sounding_notes[3] = note + bass_notes[random(0, 3)]; 
   for (byte i = 4; i < get_num_notes(); i++) {
     sounding_notes[i] = -1;
@@ -298,6 +303,9 @@ void rotate64slash(byte note) {
 }
 
 void schwantner(byte note) {
+  // A chord from Joseph Schwantner's "And the Mountains
+  // Rising Nowhere" that I've always really liked. A
+  // revoicing of a minor 11th chord.
   sounding_notes[0] = note;
   sounding_notes[1] = note + 7;
   sounding_notes[2] = note + 14;
@@ -308,12 +316,12 @@ void schwantner(byte note) {
     sounding_notes[i] = -1;
   }
 }
-  
-
 // ========= End Harmonizatons ============
+
 void notes_on() {
+  // Turn on all currently selected notes
   harmonizations[current_harmonization](base_note = get_base_note());
-  int velocity = get_velocity(initial_breath_value, sensor_value, RISE_TIME);
+  int velocity = get_velocity(initial_breath_value, breath_sensor_value, RISE_TIME);
   for (byte i = 0; i < get_num_notes(); i++) {
     if (sounding_notes[i] != -1) {
       usbMIDI.sendNoteOn(sounding_notes[i], velocity, MIDI_CHANNEL);
@@ -322,6 +330,7 @@ void notes_on() {
 }
 
 void notes_off() {
+  // Turn off all currently sounding notes
   for (byte i = 0; i < MAX_NOTES; i++) {
     if (sounding_notes[i] != -1) {
       usbMIDI.sendNoteOff(sounding_notes[i], 127, MIDI_CHANNEL);
@@ -344,18 +353,18 @@ int get_velocity(int initial, int final, unsigned long time_delta) {
 void handle_breath_sensor() {
   // Process pressure sensor data
   // read the input on analog pin 0
-  sensor_value = analogRead(A0);
+  breath_sensor_value = analogRead(A0);
   if (state == NOTE_OFF) {
-    if (sensor_value > NOTE_ON_THRESHOLD) {
+    if (breath_sensor_value > NOTE_ON_THRESHOLD) {
       // Value has risen above threshold. Move to the RISE_TIME
       // state. Record time and initial breath value.
       breath_on_time = millis();
-      initial_breath_value = sensor_value;
+      initial_breath_value = breath_sensor_value;
       state = RISE_TIME;  // Go to next state
     }
   } 
   else if (state == RISE_TIME) {
-    if (sensor_value > NOTE_ON_THRESHOLD) {
+    if (breath_sensor_value > NOTE_ON_THRESHOLD) {
       // Has enough time passed for us to collect our second
       // sample?
       if (millis() - breath_on_time > RISE_TIME) {
@@ -377,7 +386,7 @@ void handle_breath_sensor() {
       state = NOTE_OFF;
       handle_breath_sensor();
     }
-    if (sensor_value < NOTE_ON_THRESHOLD) {
+    if (breath_sensor_value < NOTE_ON_THRESHOLD) {
       // Value has fallen below threshold - turn the note off
       notes_off(); 
       state = NOTE_OFF;
@@ -386,7 +395,7 @@ void handle_breath_sensor() {
       // Is it time to send more breath controller data?
       if (millis() - bc_send_time > BC_INTERVAL) {
         // Map the sensor value to the breath controller range 0-127
-        unsigned int mval = constrain(sensor_value, NOTE_ON_THRESHOLD, MAX_PRESSURE);
+        unsigned int mval = constrain(breath_sensor_value, NOTE_ON_THRESHOLD, MAX_PRESSURE);
         bc_val = map(mval, NOTE_ON_THRESHOLD, MAX_PRESSURE, 0, 127);
         usbMIDI.sendControlChange(BREATH_CONTROLLER, bc_val, MIDI_CHANNEL);
         if (SEND_MIDI_AT) {
