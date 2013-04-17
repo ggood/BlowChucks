@@ -31,8 +31,10 @@
 // breath actions, as well as continuous controller
 // data.
 #define MIDI_CHANNEL 1
-// The MIDI channel we use for Ableton Live control
+// The MIDI channel we use for Ableton Live scene control
 #define SCENE_MGMT_MIDI_CHANNEL 2
+// The MIDI channel we use for Ableton Live track control
+#define TRACK_MGMT_MIDI_CHANNEL 2
 // The MIDI note for Live scene launch
 #define SCENE_LAUNCH_MIDI_NOTE 0
 // The MIDI note for the Live previous scene action
@@ -41,6 +43,10 @@
 #define SCENE_NEXT_MIDI_NOTE 2
 // Suppress multiple scene lanches if < 100 ms apart
 #define SCENE_LAUNCH_DELAY 100
+// The MIDI note for the Live previous track action
+#define TRACK_PREV_MIDI_NOTE 3
+// The MIDI note for the Live next track action
+#define TRACK_NEXT_MIDI_NOTE 4
 
 // The threshold level for sending a note on event. If the
 // sensor is producing a level above this, we should be sounding
@@ -135,10 +141,12 @@ byte current_harmonization = 0;
 WiiChuckTeensy3 chuck_left = WiiChuckTeensy3(0); // The nunchuck controller - Left Hand
 WiiChuckTeensy3 chuck_right = WiiChuckTeensy3(1); // The nunchuck controller - Right Hand
 
-// Current button state from nunchuck
-byte buttonState = 0;
-byte prevButtonState = 0;
-// True when both buttons pressed
+// Current button state from nunchucks
+byte buttonRState = 0;
+byte prevButtonRState = 0;
+byte buttonLState = 0;
+byte prevButtonLState = 0;
+// True when both right buttons pressed
 boolean sceneLaunchArmed;
 // Accelerometer history
 int xVal, yVal, zVal, zSum, zAvg;
@@ -151,7 +159,7 @@ int i;
 void setup() {
   state = NOTE_OFF;  // initialize state machine
   // Initialize the nunchuck-related things
-  prevButtonState = buttonState = 0;
+  prevButtonRState = buttonRState = 0;
   delay(100);
   chuck_left.begin();
   chuck_right.begin();
@@ -411,24 +419,12 @@ void handle_breath_sensor() {
 // Button/Ableton Scene Management Routines
 // ================
 
-// TODO(ggood) rewrite in terms of bit shift operations
+byte get_button_r_state() {
+  return (chuck_right.buttonC ? 0x2 : 0x0) | (chuck_right.buttonZ ? 0x1 : 0x0);
+}
+
 byte get_button_l_state() {
-  if (chuck_right.buttonC) {
-    if (chuck_right.buttonZ) {
-      return 0x03;
-    } 
-    else {
-      return 0x02;
-    }
-  } 
-  else {
-    if (chuck_right.buttonZ) {
-      return 0x01;
-    } 
-    else {
-      return 0x0;
-    }
-  }
+  return (chuck_left.buttonC ? 0x02 : 0x0) | (chuck_left.buttonZ ? 0x1 : 0x0);
 }
 
 void scene_next() {
@@ -447,13 +443,13 @@ void scene_launch() {
 }
 
 void track_next() {
-  usbMIDI.sendNoteOn(SCENE_NEXT_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL);
-  usbMIDI.sendNoteOff(SCENE_NEXT_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL);
+  usbMIDI.sendNoteOn(TRACK_NEXT_MIDI_NOTE, 100, TRACK_MGMT_MIDI_CHANNEL);
+  usbMIDI.sendNoteOff(TRACK_NEXT_MIDI_NOTE, 100, TRACK_MGMT_MIDI_CHANNEL);
 }
 
 void track_prev() {
-  usbMIDI.sendNoteOn(SCENE_PREV_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL);
-  usbMIDI.sendNoteOff(SCENE_PREV_MIDI_NOTE, 100, SCENE_MGMT_MIDI_CHANNEL); 
+  usbMIDI.sendNoteOn(TRACK_PREV_MIDI_NOTE, 100, TRACK_MGMT_MIDI_CHANNEL);
+  usbMIDI.sendNoteOff(TRACK_PREV_MIDI_NOTE, 100, TRACK_MGMT_MIDI_CHANNEL); 
 }
 
 void handle_joystick() {
@@ -465,20 +461,20 @@ void handle_joystick() {
   }
 }
 
-void handle_scene_launch() {
+void handle_scene_navigation() {
   // Check for scene up/down and launch. All actions occur on
   // button release.
-  prevButtonState = buttonState;
-  buttonState = get_button_l_state();
-  sceneLaunchArmed = (buttonState == 0x03) || sceneLaunchArmed;
-  if (buttonState == 0x0) {
+  prevButtonRState = buttonRState;
+  buttonRState = get_button_r_state();
+  sceneLaunchArmed = (buttonRState == 0x03) || sceneLaunchArmed;
+  if (buttonRState == 0x0) {
     if (sceneLaunchArmed) {
       scene_launch();
       sceneLaunchArmed = false;
     } 
-    else if (prevButtonState != buttonState) {
+    else if (prevButtonRState != buttonRState) {
       // Button state transitioned
-      switch (prevButtonState) {
+      switch (prevButtonRState) {
       case 0x01:
         scene_next();
         break;
@@ -489,6 +485,24 @@ void handle_scene_launch() {
         //scene_launch();
         break;
       }
+    }
+  }
+}
+
+void handle_track_navigation() {
+  // Check for track prev/next. All actions occur on
+  // button release.
+  prevButtonLState = buttonLState;
+  buttonLState = get_button_l_state();
+  if (prevButtonLState != buttonLState) {
+    // Button state transitioned
+    switch (prevButtonLState) {
+    case 0x01:
+      track_next();
+      break;
+    case 0x02:
+      track_prev();
+      break;
     }
   }
 }
@@ -530,7 +544,8 @@ void loop() {
   handle_breath_sensor();
   handle_joystick();
   handle_pitch_roll();
-  handle_scene_launch();
+  handle_scene_navigation();
+  handle_track_navigation();
   handle_harmonization_change();
 }
 
