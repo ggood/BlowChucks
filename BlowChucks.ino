@@ -74,7 +74,7 @@
 // We've observed a transition from below to above the
 // threshold value. We wait a while to see how fast the
 // breath velocity is increasing
-#define RISE_TIME 2
+#define RISE_TIME 0
 // A note is sounding
 #define NOTE_ON 3
 
@@ -94,7 +94,56 @@
 #define ROLL_MAX 65
 
 // The nine notes that the player selects using the joystick
-byte notes[9] = {72, 74, 77, 79, 81, 84, 86, 89, 91};
+#define HOME_NOTE 62
+byte pentatonic_notes[9] = {
+  HOME_NOTE + 0,
+  HOME_NOTE + 2,
+  HOME_NOTE + 5,
+  HOME_NOTE + 7,
+  HOME_NOTE + 9,
+  HOME_NOTE + 12,
+  HOME_NOTE + 14,
+  HOME_NOTE + 17,
+  HOME_NOTE + 19
+};
+
+byte diminished_notes[9] = {
+  HOME_NOTE + 0,
+  HOME_NOTE + 0,
+  HOME_NOTE + 1,
+  HOME_NOTE + 3,
+  HOME_NOTE + 4,
+  HOME_NOTE + 6,
+  HOME_NOTE + 7,
+  HOME_NOTE + 9,
+  HOME_NOTE + 10
+};
+
+byte dorian_notes[9] = {
+  HOME_NOTE + 0,
+  HOME_NOTE + 0,
+  HOME_NOTE + 2,
+  HOME_NOTE + 3,
+  HOME_NOTE + 5,
+  HOME_NOTE + 7,
+  HOME_NOTE + 9,
+  HOME_NOTE + 10,
+  HOME_NOTE + 12
+};
+
+byte phrygian_notes[9] = {
+  HOME_NOTE + 0,
+  HOME_NOTE + 0,
+  HOME_NOTE + 1,
+  HOME_NOTE + 3,
+  HOME_NOTE + 5,
+  HOME_NOTE + 7,
+  HOME_NOTE + 8,
+  HOME_NOTE + 10,
+  HOME_NOTE + 12
+};
+
+byte *notes = dorian_notes;
 
 // Mappings from joystick regions
 #define CENTER 0
@@ -138,8 +187,8 @@ void (*harmonizations[NUM_HARMONIZATIONS])(byte) = {stacked_fourths, hassell, sh
 byte current_harmonization = 0;
 
 // The nunchuck objects (2)
-WiiChuckTeensy3 chuck_left = WiiChuckTeensy3(0); // The nunchuck controller - Left Hand
-WiiChuckTeensy3 chuck_right = WiiChuckTeensy3(1); // The nunchuck controller - Right Hand
+WiiChuckTeensy3 chuck_left = WiiChuckTeensy3(1); // The nunchuck controller - Left Hand
+WiiChuckTeensy3 chuck_right = WiiChuckTeensy3(0); // The nunchuck controller - Right Hand
 
 // Current button state from nunchucks
 byte buttonRState = 0;
