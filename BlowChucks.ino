@@ -93,54 +93,56 @@
 #define ROLL_MIN -65
 #define ROLL_MAX 65
 
-// The nine notes that the player selects using the joystick
-#define HOME_NOTE 62
+#define DEFAULT_HOME_NOTE 62
+
+// Scale definitions: each one defines the nine notes that the
+// player selects using the joystick.
 byte pentatonic_notes[9] = {
-  HOME_NOTE + 0,
-  HOME_NOTE + 2,
-  HOME_NOTE + 5,
-  HOME_NOTE + 7,
-  HOME_NOTE + 9,
-  HOME_NOTE + 12,
-  HOME_NOTE + 14,
-  HOME_NOTE + 17,
-  HOME_NOTE + 19
+  0,
+  2,
+  5,
+  7,
+  9,
+  12,
+  14,
+  17,
+  19
 };
 
 byte diminished_notes[9] = {
-  HOME_NOTE + 0,
-  HOME_NOTE + 0,
-  HOME_NOTE + 1,
-  HOME_NOTE + 3,
-  HOME_NOTE + 4,
-  HOME_NOTE + 6,
-  HOME_NOTE + 7,
-  HOME_NOTE + 9,
-  HOME_NOTE + 10
+  0,
+  0,
+  1,
+  3,
+  4,
+  6,
+  7,
+  9,
+  10
 };
 
 byte dorian_notes[9] = {
-  HOME_NOTE + 0,
-  HOME_NOTE + 0,
-  HOME_NOTE + 2,
-  HOME_NOTE + 3,
-  HOME_NOTE + 5,
-  HOME_NOTE + 7,
-  HOME_NOTE + 9,
-  HOME_NOTE + 10,
-  HOME_NOTE + 12
+  0,
+  0,
+  2,
+  3,
+  5,
+  7,
+  9,
+  10,
+  12
 };
 
 byte phrygian_notes[9] = {
-  HOME_NOTE + 0,
-  HOME_NOTE + 0,
-  HOME_NOTE + 1,
-  HOME_NOTE + 3,
-  HOME_NOTE + 5,
-  HOME_NOTE + 7,
-  HOME_NOTE + 8,
-  HOME_NOTE + 10,
-  HOME_NOTE + 12
+  0,
+  0,
+  1,
+  3,
+  5,
+  7,
+  8,
+  10,
+  12
 };
 
 byte *notes = dorian_notes;
@@ -156,6 +158,9 @@ byte *notes = dorian_notes;
 #define WEST 7
 #define NORTHWEST 8
 
+// The note that sounds when no nunchuck controls
+// are being touched.
+int home_note = DEFAULT_HOME_NOTE;
 // The base note - used to detect note changes
 int base_note;
 // We keep track of which notes are sounding, so we know
@@ -212,6 +217,40 @@ void setup() {
   delay(100);
   chuck_left.begin();
   chuck_right.begin();
+  // Initialize USB MIDI receive handlers
+  usbMIDI.setHandleNoteOff(OnNoteOff);
+  usbMIDI.setHandleNoteOn(OnNoteOn);
+  usbMIDI.setHandleVelocityChange(OnVelocityChange);
+  usbMIDI.setHandleControlChange(OnControlChange);
+  usbMIDI.setHandleProgramChange(OnProgramChange);
+  usbMIDI.setHandleAfterTouch(OnAfterTouch);
+  usbMIDI.setHandlePitchChange(OnPitchChange);
+  // Set LED to echo incoming MIDI data
+  pinMode(13, OUTPUT);
+}
+
+void OnNoteOn(byte channel, byte note, byte velocity) {
+  home_note = note;
+  digitalWrite(13, HIGH);
+}
+
+void OnNoteOff(byte channel, byte note, byte velocity) {
+  digitalWrite(13, LOW);
+}
+
+void OnVelocityChange(byte channel, byte note, byte velocity) {
+}
+
+void OnControlChange(byte channel, byte control, byte value) {
+}
+
+void OnProgramChange(byte channel, byte program) {
+}
+
+void OnAfterTouch(byte channel, byte pressure) {
+}
+
+void OnPitchChange(byte channel, int pitch) {
 }
 
 
@@ -280,7 +319,7 @@ byte get_base_note() {
   }
   // Now map pairs of x, y directions to a note
   byte direction = get_direction(x_dir, y_dir);
-  new_note = notes[direction];
+  new_note = home_note + notes[direction];
 
   // Now look at the left joystick to select an octave, based
   // on X axis centered, or left/right of center.
@@ -377,6 +416,7 @@ void schwantner(byte note) {
 
 void notes_on() {
   // Turn on all currently selected notes
+  digitalWrite(13, HIGH);
   harmonizations[current_harmonization](base_note = get_base_note());
   int velocity = get_velocity(initial_breath_value, breath_sensor_value, RISE_TIME);
   for (byte i = 0; i < get_num_notes(); i++) {
@@ -388,6 +428,7 @@ void notes_on() {
 
 void notes_off() {
   // Turn off all currently sounding notes
+  digitalWrite(13, LOW);
   for (byte i = 0; i < MAX_NOTES; i++) {
     if (sounding_notes[i] != -1) {
       usbMIDI.sendNoteOff(sounding_notes[i], 127, MIDI_CHANNEL);
@@ -588,7 +629,9 @@ void loop() {
   // Process nunchuck data
   chuck_left.update(); 
   chuck_right.update();
-
+  
+  // Get incoming MIDI messages
+  usbMIDI.read();
 
   handle_breath_sensor();
   handle_joystick();
