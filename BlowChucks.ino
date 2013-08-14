@@ -95,6 +95,43 @@
 
 #define DEFAULT_HOME_NOTE 62
 
+byte display_map[10][7] = {
+  {1,1,1,1,1,1,0},
+  {0,1,1,0,0,0,0},
+  {1,1,0,1,1,0,1},
+  {1,1,1,1,0,0,1},
+  {0,1,1,0,0,1,1},
+  {1,0,1,1,0,1,1},
+  {1,0,1,1,1,1,1},
+  {1,1,1,0,0,0,0},
+  {1,1,1,1,1,1,1},
+  {1,1,1,0,0,1,1}
+};
+
+byte char_map[7][7] = {
+  {1,1,1,0,1,1,0},  // A
+  {0,0,0,1,1,1,1},  // b
+  {1,0,0,1,1,1,0},  // C
+  {0,1,1,1,0,0,1},  // d
+  {1,0,0,1,1,1,1},  // e
+  {1,0,0,0,1,1,1},  // f
+  {1,0,0,1,1,1,1}   // g
+};
+
+void display_digit(byte digit) {
+  byte *bits = display_map[digit];
+  for (int i = 0; i < 7; i++) {
+    digitalWrite(i, bits[i]);
+  }
+}
+
+void display_char(char c) {
+  byte *bits = display_map[c - 'A'];
+  for (int i = 0; i < 7; i++) {
+    digitalWrite(i, bits[i]);
+  }
+}
+
 // Scale definitions: each one defines the nine notes that the
 // player selects using the joystick.
 byte pentatonic_notes[9] = {
@@ -227,6 +264,11 @@ void setup() {
   usbMIDI.setHandlePitchChange(OnPitchChange);
   // Set LED to echo incoming MIDI data
   pinMode(13, OUTPUT);
+  // Enable 7-segment display pins
+  for (int i = 0; i < 11; i++) {
+    pinMode(i, OUTPUT);
+  }
+  display_digit(current_harmonization);
 }
 
 void OnNoteOn(byte channel, byte note, byte velocity) {
@@ -499,6 +541,7 @@ void handle_breath_sensor() {
         if (SEND_MIDI_AT) {
           usbMIDI.sendAfterTouch(bc_val, MIDI_CHANNEL);
         }
+        analogWrite(10, bc_val * 2);
         bc_send_time = millis();
       }
     }
@@ -572,7 +615,7 @@ void handle_scene_navigation() {
         scene_prev();
         break;
       case 0x03:
-        //scene_launch();
+        scene_launch();
         break;
       }
     }
@@ -623,6 +666,7 @@ void handle_harmonization_change() {
   } else if (chuck_left.zPressed()) {
     current_harmonization = (current_harmonization == 0 ? NUM_HARMONIZATIONS -1: current_harmonization - 1);
   }
+  display_digit(current_harmonization);
 }
 
 void loop() {
